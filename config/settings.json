@@ -1,0 +1,37 @@
+{
+  "preferences": {
+    "autostart_enabled": false,
+    "polling_interval_ms": 2000,
+    "features": {
+      "show_vid_pid": true,
+      "show_status_indicator": true,
+      "enable_quick_copy": true
+    }
+  },
+  "notifications": {
+    "enabled": true,
+    "timeout_seconds": 5
+  },
+  "custom_labels": {
+    "COM4": "com0com A"
+  },
+  "hidden_ports": [
+    "COM1",
+    "COM2"
+  ],
+  "launchers": [
+    {
+      "id": "launcher_1",
+      "label": "PuTTY 115200",
+      "program": "C:\\Program Files\\PuTTY\\putty.exe",
+      "args": "-serial %1 -sercfg 115200,8,n,1,N"
+    }
+  ],
+  "auto_connect_rules": [
+    {
+      "enabled": true,
+      "port_identifier": "com0com A",
+      "launcher_id": "launcher_1"
+    }
+  ]
+}
