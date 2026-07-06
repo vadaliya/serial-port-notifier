@@ -13,6 +13,7 @@ class SerialMonitor:
         self.running = False
         self.thread = None
         self.current_ports = {}  # Mapped by device name (e.g., 'COM4' or '/dev/ttyUSB0')
+        self.wake_event = threading.Event()
 
     def start(self):
         """Start the background polling thread."""
@@ -24,16 +25,23 @@ class SerialMonitor:
     def stop(self):
         """Stop the background polling thread."""
         self.running = False
+        self.wake_event.set()
         if self.thread:
             self.thread.join()
+
+    def trigger_poll(self):
+        """Force the background thread to poll ports immediately."""
+        self.wake_event.set()
 
     def _monitor_loop(self):
         """Main loop: Poll ports, then sleep for the configured interval."""
         while self.running:
             self._poll_ports()
             interval_ms = self.config.get("preferences", {}).get("polling_interval_ms", 2000)
-            # Enforce absolute minimum 500ms to protect CPU
-            time.sleep(max(0.5, interval_ms / 1000.0))
+            # Wait on event, returns True if set, False if timeout.
+            # Enforce absolute minimum 500ms to protect CPU.
+            self.wake_event.wait(max(0.5, interval_ms / 1000.0))
+            self.wake_event.clear()
 
     def _poll_ports(self):
         """Check hardware and calculate additions/removals."""
@@ -59,8 +67,15 @@ class SerialMonitor:
             }
             
             # Check availability if the user enabled the status indicator
-            if features_config.get("show_status_indicator", True):
-                port_data["is_busy"] = self._check_if_busy(p.device)
+            # Skip Bluetooth ports to avoid massive connection timeouts (5+ seconds) on Windows
+            if features_config.get("show_status_indicator", True) and not self._is_bluetooth_port(p):
+                # Skip checking if busy on the very first poll it is detected
+                # This prevents blocking the thread during driver initialization (which takes 2-3s for some USB-to-Serial chips)
+                if p.device in self.current_ports:
+                    port_data["is_busy"] = self._check_if_busy(p.device)
+                else:
+                    # Newly connected port: assume not busy on discovery
+                    port_data["is_busy"] = False
 
             new_port_state[p.device] = port_data
 
@@ -76,6 +91,12 @@ class SerialMonitor:
 
         # Update current state
         self.current_ports = new_port_state
+
+    def _is_bluetooth_port(self, p):
+        """Identifies Bluetooth serial links by description or manufacturer."""
+        desc = (p.description or "").lower()
+        mfg = (p.manufacturer or "").lower()
+        return "bluetooth" in desc or "bluetooth" in mfg
 
     def _check_if_busy(self, device):
         """Attempts to briefly open the port to see if another app locked it."""

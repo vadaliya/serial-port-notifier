@@ -104,7 +104,8 @@ class ToastNotification(QWidget):
 
         layout.addWidget(container)
         self.setLayout(layout)
-        self.setFixedSize(300, 100)
+        self.setFixedWidth(300)
+        self.adjustSize()
 
     def _position_on_screen(self):
         screen_geometry = QApplication.primaryScreen().availableGeometry()
