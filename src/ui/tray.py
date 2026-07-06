@@ -38,7 +38,11 @@ class TrayApp(QObject):
         
         # --- NEW ICON LOADING LOGIC ---
         # Resolve the path to the logo in the assets folder
-        icon_path = get_resource_path("assets/logo.png")
+        # Use high-DPI ICO on Windows and PNG on other platforms
+        if platform.system() == "Windows":
+            icon_path = get_resource_path("assets/logo.ico")
+        else:
+            icon_path = get_resource_path("assets/logo.png")
         self.tray_icon.setIcon(QIcon(icon_path))
         # ------------------------------
         
