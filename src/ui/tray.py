@@ -207,12 +207,35 @@ class TrayApp(QObject):
         if not program:
             return
 
+        # Retrieve hardware properties from the monitor
+        port_data = self.monitor.current_ports.get(port_name, {})
+        vid = port_data.get("vid")
+        pid = port_data.get("pid")
+        mfg = port_data.get("manufacturer", "")
+        desc = port_data.get("description", "")
+        
+        # Format VID and PID as 4-digit hexadecimal strings (e.g. 0403, 6001)
+        vid_hex = f"{vid:04X}" if isinstance(vid, int) else ""
+        pid_hex = f"{pid:04X}" if isinstance(pid, int) else ""
+
         # Extract just the port number (e.g., "COM4" -> "4", "/dev/ttyUSB0" -> "0")
         match = re.search(r'\d+', port_name)
         port_number = match.group() if match else ""
         
-        # Replace placeholders: %1 is full port name, %2 is port number
-        args = args_template.replace("%1", port_name).replace("%2", port_number)
+        # Replace placeholders:
+        # %1 = full port name (e.g. COM15)
+        # %2 = port number (e.g. 15)
+        # %3 = USB Vendor ID in hex (e.g. 0403)
+        # %4 = USB Product ID in hex (e.g. 6001)
+        # %5 = Manufacturer name (e.g. FTDI)
+        # %6 = Product description (e.g. USB Serial Port)
+        args = args_template
+        args = args.replace("%1", port_name)
+        args = args.replace("%2", port_number)
+        args = args.replace("%3", vid_hex)
+        args = args.replace("%4", pid_hex)
+        args = args.replace("%5", mfg)
+        args = args.replace("%6", desc)
         
         try:
             if platform.system() == "Windows":
@@ -299,6 +322,40 @@ class TrayApp(QObject):
     def _on_ports_added(self, added_ports):
         self._build_menu()
         self._show_notification("New Serial Ports:", added_ports)
+        
+        # Process auto-connect launcher rules
+        custom_labels = self.config.get("custom_labels", {})
+        rules = self.config.get("auto_connect_rules", [])
+        launchers = self.config.get("launchers", [])
+        
+        for p in added_ports:
+            device = p.get("device")
+            label = custom_labels.get(device, "")
+            
+            # 1. Match against traditional auto_connect_rules
+            for rule in rules:
+                if not rule.get("enabled", True):
+                    continue
+                
+                port_id = rule.get("port_identifier", "").strip().lower()
+                if not port_id:
+                    continue
+                
+                # Match against either raw device path (e.g. "com6") or custom label (e.g. "yat")
+                if port_id == device.lower() or (label and port_id == label.lower()):
+                    # Find corresponding launcher
+                    launcher_id = rule.get("launcher_id")
+                    launcher = next((l for l in launchers if l.get("id") == launcher_id), None)
+                    if launcher:
+                        self._execute_launcher(device, launcher)
+            
+            # 2. Match against launcher-defined auto_ports list
+            for launcher in launchers:
+                auto_ports = launcher.get("auto_ports", "").strip().lower()
+                if auto_ports:
+                    ports_list = [x.strip() for x in auto_ports.split(",") if x.strip()]
+                    if device.lower() in ports_list or (label and label.lower() in ports_list):
+                        self._execute_launcher(device, launcher)
 
     def _on_ports_removed(self, removed_ports):
         self._build_menu()
