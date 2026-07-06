@@ -6,7 +6,8 @@ from pathlib import Path
 DEFAULT_CONFIG = {
     "preferences": {
         "autostart_enabled": False,
-        "polling_interval_ms": 2000,
+        "polling_interval_ms": 1000,
+        "enable_marquee": True,
         "features": {
             "show_vid_pid": True,
             "show_status_indicator": True,
@@ -21,6 +22,7 @@ DEFAULT_CONFIG = {
         "custom_text_color": ""      # e.g., "#FFFFFF"
     },
     "custom_labels": {},
+    "marquee_ports": {},
     "hidden_ports": [],
     "launchers": [],
     "auto_connect_rules": []
