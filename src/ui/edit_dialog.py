@@ -40,6 +40,11 @@ class EditLauncherDialog(QDialog):
         self.txt_args.textChanged.connect(self._update_preview)
         form_layout.addRow("Command Line:", self.txt_args)
         
+        # Auto-launch Ports
+        self.txt_auto_ports = QLineEdit(self.data.get("auto_ports", ""))
+        self.txt_auto_ports.setPlaceholderText("e.g. COM6, FTDI (comma-separated, leave empty to disable)")
+        form_layout.addRow("Auto-launch on Ports:", self.txt_auto_ports)
+        
         layout.addLayout(form_layout)
 
         # Preview & Help Text
@@ -47,7 +52,15 @@ class EditLauncherDialog(QDialog):
         self.lbl_preview.setStyleSheet("color: gray; margin-top: 5px;")
         layout.addWidget(self.lbl_preview)
         
-        help_text = QLabel("Command Line Options:\n%1 - COM port name (e.g. COM15)\n%2 - COM port number (e.g. 15)")
+        help_text = QLabel(
+            "Command Line Options:\n"
+            "%1 - COM port name (e.g. COM15)\n"
+            "%2 - COM port number (e.g. 15)\n"
+            "%3 - USB Vendor ID in hex (e.g. 0403)\n"
+            "%4 - USB Product ID in hex (e.g. 6001)\n"
+            "%5 - Manufacturer (e.g. FTDI)\n"
+            "%6 - Product Description (e.g. USB Serial Port)"
+        )
         help_text.setStyleSheet("color: gray;")
         layout.addWidget(help_text)
 
@@ -80,5 +93,6 @@ class EditLauncherDialog(QDialog):
             "id": self.data.get("id", f"launcher_{hash(self.txt_label.text())}"), # simple ID generation
             "label": self.txt_label.text(),
             "program": self.txt_program.text(),
-            "args": self.txt_args.text()
+            "args": self.txt_args.text(),
+            "auto_ports": self.txt_auto_ports.text().strip()
         }
