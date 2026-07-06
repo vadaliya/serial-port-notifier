@@ -17,6 +17,7 @@ from ui.rename_dialog import RenamePortDialog
 class TrayApp(QObject):
     ports_added_signal = pyqtSignal(list)
     ports_removed_signal = pyqtSignal(list)
+    reset_completed_signal = pyqtSignal(str, list)
 
     def __init__(self, config_manager, monitor):
         super().__init__()
@@ -33,6 +34,7 @@ class TrayApp(QObject):
         self.monitor.on_port_removed = self.ports_removed_signal.emit
         self.ports_added_signal.connect(self._on_ports_added)
         self.ports_removed_signal.connect(self._on_ports_removed)
+        self.reset_completed_signal.connect(self._show_notification)
 
         self.tray_icon = QSystemTrayIcon()
         
@@ -187,9 +189,10 @@ class TrayApp(QObject):
         port_menu.addAction(rename_action)
         port_menu.addSeparator()
         
-        # Placeholder for Reset functionality (Phase 5)
+        # Trigger DTR/RTS Reset (Phase 5)
         reset_action = QAction("Reset Device (DTR/RTS)", self)
         reset_action.setEnabled(not data.get("is_busy"))
+        reset_action.triggered.connect(lambda checked, p=device_path: self._reset_device(p))
         port_menu.addAction(reset_action)
 
     def _copy_to_clipboard(self, text):
@@ -270,6 +273,20 @@ class TrayApp(QObject):
                 
             self.config.save_config()
             self._build_menu()
+
+    def _reset_device(self, device_path):
+        """Spawns a background thread to execute DTR/RTS hardware reset."""
+        import threading
+        from core.serial_reset import reset_serial_device
+        
+        def task():
+            success, msg = reset_serial_device(device_path)
+            if success:
+                self.reset_completed_signal.emit("Reset Successful", [{"device": device_path}])
+            else:
+                self.reset_completed_signal.emit("Reset Failed", [{"device": f"{device_path}: {msg}"}])
+                
+        threading.Thread(target=task, daemon=True).start()
 
     def _update_marquees(self):
         """Updates the titles of any long-named submenus with a circular text marquee."""
