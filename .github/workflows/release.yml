@@ -10,18 +10,23 @@ permissions:
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
+    name: Build on ${{ matrix.os }} (${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest]
         include:
           - os: windows-latest
-            artifact_name: SerialPortNotifier.exe
-            asset_name: SerialPortNotifier-windows-amd64.exe
+            arch: x64
+            asset_name: SerialPortNotifier-windows-x64.exe
+          - os: windows-latest
+            arch: x86
+            asset_name: SerialPortNotifier-windows-x32.exe
           - os: ubuntu-latest
-            artifact_name: dist/SerialPortNotifier
-            asset_name: SerialPortNotifier-linux-amd64
+            arch: x64
+            asset_name: SerialPortNotifier-linux-x64
+          - os: ubuntu-24.04-arm64
+            arch: arm64
+            asset_name: SerialPortNotifier-linux-arm64
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,6 +35,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          architecture: ${{ matrix.arch }}
 
       - name: Install dependencies
         run: |
@@ -38,7 +44,7 @@ jobs:
           pip install pyinstaller
 
       - name: Install system dependencies (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+        if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xfixes0
@@ -49,7 +55,7 @@ jobs:
           pyinstaller --noconsole --onefile --icon=assets/logo.ico --add-data "assets;assets" --paths=src --name=SerialPortNotifier src/main.py
 
       - name: Build with PyInstaller (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: startsWith(matrix.os, 'ubuntu')
         run: |
           pyinstaller --noconsole --onefile --add-data "assets:assets" --paths=src --name=SerialPortNotifier src/main.py
 
