@@ -91,30 +91,26 @@ jobs:
           
           VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           
-          cat << 'EOF' > deb_dir/DEBIAN/control
-Package: serial-port-notifier
-Version: VERSION_PLACEHOLDER
-Section: utils
-Priority: optional
-Architecture: ARCH_PLACEHOLDER
-Maintainer: Bhargav Vadaliya
-Description: Real-time Serial Port monitor and notifier utility.
-EOF
+          echo "Package: serial-port-notifier" > deb_dir/DEBIAN/control
+          echo "Version: VERSION_PLACEHOLDER" >> deb_dir/DEBIAN/control
+          echo "Section: utils" >> deb_dir/DEBIAN/control
+          echo "Priority: optional" >> deb_dir/DEBIAN/control
+          echo "Architecture: ARCH_PLACEHOLDER" >> deb_dir/DEBIAN/control
+          echo "Maintainer: Bhargav Vadaliya" >> deb_dir/DEBIAN/control
+          echo "Description: Real-time Serial Port monitor and notifier utility." >> deb_dir/DEBIAN/control
           
           # Replace version and arch placeholders
           sed -i "s/VERSION_PLACEHOLDER/${VERSION}/" deb_dir/DEBIAN/control
           sed -i "s/ARCH_PLACEHOLDER/${{ matrix.deb_arch }}/" deb_dir/DEBIAN/control
           
-          cat << 'EOF' > deb_dir/usr/share/applications/serial-port-notifier.desktop
-[Desktop Entry]
-Type=Application
-Name=Serial Port Notifier
-Comment=Real-time Serial Port monitor and notifier
-Exec=/usr/bin/serial-port-notifier
-Icon=/usr/share/serial-port-notifier/assets/logo.png
-Terminal=false
-Categories=Utility;Development;
-EOF
+          echo "[Desktop Entry]" > deb_dir/usr/share/applications/serial-port-notifier.desktop
+          echo "Type=Application" >> deb_dir/usr/share/applications/serial-port-notifier.desktop
+          echo "Name=Serial Port Notifier" >> deb_dir/usr/share/applications/serial-port-notifier.desktop
+          echo "Comment=Real-time Serial Port monitor and notifier" >> deb_dir/usr/share/applications/serial-port-notifier.desktop
+          echo "Exec=/usr/bin/serial-port-notifier" >> deb_dir/usr/share/applications/serial-port-notifier.desktop
+          echo "Icon=/usr/share/serial-port-notifier/assets/logo.png" >> deb_dir/usr/share/applications/serial-port-notifier.desktop
+          echo "Terminal=false" >> deb_dir/usr/share/applications/serial-port-notifier.desktop
+          echo "Categories=Utility;Development;" >> deb_dir/usr/share/applications/serial-port-notifier.desktop
           
           cp dist_release/${{ matrix.asset_name }} deb_dir/usr/bin/serial-port-notifier
           cp -r assets/* deb_dir/usr/share/serial-port-notifier/assets/
