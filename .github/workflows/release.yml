@@ -30,7 +30,7 @@ jobs:
             deb_arch: amd64
             asset_name: SerialPortNotifier-linux-x64
             installer_name: SerialPortNotifier-linux-x64.deb
-          - os: ubuntu-24.04-arm64
+          - os: ubuntu-24.04-arm
             arch: arm64
             deb_arch: arm64
             asset_name: SerialPortNotifier-linux-arm64
