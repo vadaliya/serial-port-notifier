@@ -70,6 +70,9 @@ class ConfigManager:
     def get(self, key, default=None):
         return self.config.get(key, default)
 
+    def set(self, key, value):
+        self.config[key] = value
+
     def _merge_dicts(self, default, user):
         """Helper to deeply merge default settings with user settings."""
         for k, v in user.items():
