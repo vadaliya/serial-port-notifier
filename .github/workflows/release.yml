@@ -17,16 +17,24 @@ jobs:
         include:
           - os: windows-latest
             arch: x64
+            deb_arch: ''
             asset_name: SerialPortNotifier-windows-x64.exe
+            installer_name: SerialPortNotifier-windows-x64-setup.exe
           - os: windows-latest
             arch: x86
+            deb_arch: ''
             asset_name: SerialPortNotifier-windows-x32.exe
+            installer_name: SerialPortNotifier-windows-x32-setup.exe
           - os: ubuntu-latest
             arch: x64
+            deb_arch: amd64
             asset_name: SerialPortNotifier-linux-x64
+            installer_name: SerialPortNotifier-linux-x64.deb
           - os: ubuntu-24.04-arm64
             arch: arm64
+            deb_arch: arm64
             asset_name: SerialPortNotifier-linux-arm64
+            installer_name: SerialPortNotifier-linux-arm64.deb
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -49,28 +57,76 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xfixes0
 
+      - name: Create release directory
+        run: mkdir dist_release
+
       - name: Build with PyInstaller (Windows)
         if: matrix.os == 'windows-latest'
         run: |
           pyinstaller --noconsole --onefile --icon=assets/logo.ico --add-data "assets;assets" --paths=src --name=SerialPortNotifier src/main.py
+          mv dist/SerialPortNotifier.exe dist/${{ matrix.asset_name }}
+          cp dist/${{ matrix.asset_name }} dist_release/
+
+      - name: Build Installer (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          iscc /DAppVersion="$version" /DExecutablePath="dist_release/${{ matrix.asset_name }}" /DOutputName="SerialPortNotifier-temp-setup" installer.iss
+          mv dist/SerialPortNotifier-temp-setup.exe dist_release/${{ matrix.installer_name }}
 
       - name: Build with PyInstaller (Linux)
         if: startsWith(matrix.os, 'ubuntu')
         run: |
           pyinstaller --noconsole --onefile --add-data "assets:assets" --paths=src --name=SerialPortNotifier src/main.py
+          mv dist/SerialPortNotifier dist_release/${{ matrix.asset_name }}
 
-      - name: Rename artifacts
-        shell: bash
+      - name: Build Debian Package (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
         run: |
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            mv dist/SerialPortNotifier.exe dist/${{ matrix.asset_name }}
-          else
-            mv dist/SerialPortNotifier dist/${{ matrix.asset_name }}
-          fi
+          mkdir -p deb_dir/DEBIAN
+          mkdir -p deb_dir/usr/bin
+          mkdir -p deb_dir/usr/share/serial-port-notifier/assets
+          mkdir -p deb_dir/usr/share/applications
+          
+          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          
+          cat << 'EOF' > deb_dir/DEBIAN/control
+Package: serial-port-notifier
+Version: VERSION_PLACEHOLDER
+Section: utils
+Priority: optional
+Architecture: ARCH_PLACEHOLDER
+Maintainer: Bhargav Vadaliya
+Description: Real-time Serial Port monitor and notifier utility.
+EOF
+          
+          # Replace version and arch placeholders
+          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/" deb_dir/DEBIAN/control
+          sed -i "s/ARCH_PLACEHOLDER/${{ matrix.deb_arch }}/" deb_dir/DEBIAN/control
+          
+          cat << 'EOF' > deb_dir/usr/share/applications/serial-port-notifier.desktop
+[Desktop Entry]
+Type=Application
+Name=Serial Port Notifier
+Comment=Real-time Serial Port monitor and notifier
+Exec=/usr/bin/serial-port-notifier
+Icon=/usr/share/serial-port-notifier/assets/logo.png
+Terminal=false
+Categories=Utility;Development;
+EOF
+          
+          cp dist_release/${{ matrix.asset_name }} deb_dir/usr/bin/serial-port-notifier
+          cp -r assets/* deb_dir/usr/share/serial-port-notifier/assets/
+          
+          chmod -R 755 deb_dir/usr/bin/serial-port-notifier
+          chmod -R 755 deb_dir/DEBIAN
+          
+          dpkg-deb --build deb_dir dist_release/${{ matrix.installer_name }}
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/${{ matrix.asset_name }}
+          files: dist_release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

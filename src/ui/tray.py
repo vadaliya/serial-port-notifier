@@ -25,10 +25,16 @@ class TrayApp(QObject):
         self.monitor = monitor
         self.active_toasts = [] # keep notifications alive in memory
         self.active_marquees = {} # stores active marquee menus
+        self._menu_needs_rebuild = False
         
         # Initialize marquee update timer
         self.marquee_timer = QTimer(self)
         self.marquee_timer.timeout.connect(self._update_marquees)
+        
+        # Initialize poll debounce timer
+        self._poll_debounce_timer = QTimer(self)
+        self._poll_debounce_timer.setSingleShot(True)
+        self._poll_debounce_timer.timeout.connect(self.monitor.trigger_poll)
         
         self.monitor.on_port_added = self.ports_added_signal.emit
         self.monitor.on_port_removed = self.ports_removed_signal.emit
@@ -52,6 +58,7 @@ class TrayApp(QObject):
         
         self.menu = QMenu()
         self.menu.setStyleSheet("QMenu { min-width: 140px; }")
+        self.menu.aboutToHide.connect(self._on_menu_hidden)
         self._build_menu()
         self.tray_icon.setContextMenu(self.menu)
         self.tray_icon.show()
@@ -63,9 +70,9 @@ class TrayApp(QObject):
             import ctypes.wintypes
 
             class DeviceEventFilter(QAbstractNativeEventFilter):
-                def __init__(self, monitor):
+                def __init__(self, tray_app):
                     super().__init__()
-                    self.monitor = monitor
+                    self.tray_app = tray_app
 
                 def nativeEventFilter(self, eventType, message):
                     if eventType == b'windows_generic_MSG':
@@ -75,16 +82,18 @@ class TrayApp(QObject):
                             if msg.message == 0x0219:  # WM_DEVICECHANGE
                                 # 0x8000 = DBT_DEVICEARRIVAL, 0x8004 = DBT_DEVICEREMOVECOMPLETE
                                 if msg.wParam in (0x8000, 0x8004):
-                                    self.monitor.trigger_poll()
-                                    # Trigger a delayed backup poll 500ms later to catch ports that register with a slight delay
-                                    QTimer.singleShot(500, self.monitor.trigger_poll)
+                                    self.tray_app.request_poll()
                     return False, 0
 
-            self.device_event_filter = DeviceEventFilter(self.monitor)
+            self.device_event_filter = DeviceEventFilter(self)
             QApplication.instance().installNativeEventFilter(self.device_event_filter)
 
     def _build_menu(self):
         """Clears and rebuilds the right-click menu based on active ports."""
+        if self.menu.isVisible():
+            self._menu_needs_rebuild = True
+            return
+            
         self.menu.clear()
         self.active_marquees.clear()
         self.marquee_timer.stop()
@@ -118,6 +127,18 @@ class TrayApp(QObject):
         # Start marquee scrolling timer if there are active marquees
         if self.active_marquees:
             self.marquee_timer.start(300)
+
+    def request_poll(self):
+        """Debounces hardware change notifications to prevent multiple rapid polls."""
+        self._poll_debounce_timer.stop()
+        self._poll_debounce_timer.start(300)
+
+    def _on_menu_hidden(self):
+        """Rebuilds the menu if a change occurred while it was open."""
+        if self._menu_needs_rebuild:
+            self._menu_needs_rebuild = False
+            # Wait 100ms for system transitions to complete cleanly
+            QTimer.singleShot(100, self._build_menu)
 
     def _add_port_menu_item(self, device_path, data):
         """Creates a submenu for an individual port."""
@@ -194,6 +215,13 @@ class TrayApp(QObject):
         reset_action.setEnabled(not data.get("is_busy"))
         reset_action.triggered.connect(lambda checked, p=device_path: self._reset_device(p))
         port_menu.addAction(reset_action)
+        port_menu.addSeparator()
+        
+        # Quick Peek (Phase 5)
+        peek_action = QAction("Quick Peek...", self)
+        peek_action.setEnabled(not data.get("is_busy"))
+        peek_action.triggered.connect(lambda checked, p=device_path: self._open_quick_peek(p))
+        port_menu.addAction(peek_action)
 
     def _copy_to_clipboard(self, text):
         """Copies the port name to the OS clipboard."""
@@ -287,6 +315,28 @@ class TrayApp(QObject):
                 self.reset_completed_signal.emit("Reset Failed", [{"device": f"{device_path}: {msg}"}])
                 
         threading.Thread(target=task, daemon=True).start()
+
+    def _open_quick_peek(self, device_path):
+        """Opens a modeless Quick Peek dialog for the specified port."""
+        from ui.quick_peek import QuickPeekDialog
+        
+        if not hasattr(self, "_active_peeks"):
+            self._active_peeks = {}
+            
+        # Bring to front if already active
+        if device_path in self._active_peeks:
+            try:
+                self._active_peeks[device_path].show()
+                self._active_peeks[device_path].raise_()
+                self._active_peeks[device_path].activateWindow()
+                return
+            except Exception:
+                pass
+                
+        dialog = QuickPeekDialog(device_path, self.config)
+        self._active_peeks[device_path] = dialog
+        dialog.closed_signal.connect(lambda: self._active_peeks.pop(device_path, None))
+        dialog.show()
 
     def _update_marquees(self):
         """Updates the titles of any long-named submenus with a circular text marquee."""

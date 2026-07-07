@@ -14,6 +14,25 @@ class SerialMonitor:
         self.thread = None
         self.current_ports = {}  # Mapped by device name (e.g., 'COM4' or '/dev/ttyUSB0')
         self.wake_event = threading.Event()
+        
+        # Establish initial baseline of ports so we don't trigger startup alerts
+        self._initialize_baseline_ports()
+
+    def _initialize_baseline_ports(self):
+        """Scans ports initially to populate baseline state without triggering callbacks."""
+        raw_ports = serial.tools.list_ports.comports()
+        hidden_ports = self.config.get("hidden_ports", [])
+        for p in raw_ports:
+            if p.device in hidden_ports:
+                continue
+            self.current_ports[p.device] = {
+                "device": p.device,
+                "description": p.description,
+                "manufacturer": p.manufacturer or "Unknown",
+                "vid": p.vid,
+                "pid": p.pid,
+                "is_busy": False
+            }
 
     def start(self):
         """Start the background polling thread."""
