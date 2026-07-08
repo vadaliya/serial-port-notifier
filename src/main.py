@@ -35,6 +35,36 @@ def exception_hook(exctype, value, tb):
 
 sys.excepthook = exception_hook
 
+def _show_already_running_warning():
+    """Displays a warning pop-up styled with the application logo icon."""
+    from PyQt6.QtGui import QIcon, QPixmap
+    from PyQt6.QtCore import Qt
+    from utils.helpers import get_resource_path
+    
+    msg_box = QMessageBox()
+    msg_box.setWindowTitle("Serial Port Notifier")
+    msg_box.setText("Serial Port Notifier is already running.")
+    
+    # Resolve the path to the logo based on the platform
+    if platform.system() == "Windows":
+        icon_path = get_resource_path("assets/logo.ico")
+    else:
+        icon_path = get_resource_path("assets/logo.png")
+        
+    # Set the window/taskbar icon
+    msg_box.setWindowIcon(QIcon(icon_path))
+    
+    # Set the main pop-up icon using a high-resolution pixmap extracted from the icon
+    icon = QIcon(icon_path)
+    high_res_pixmap = icon.pixmap(512, 512)
+    if not high_res_pixmap.isNull():
+        scaled_pixmap = high_res_pixmap.scaled(64, 64, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        msg_box.setIconPixmap(scaled_pixmap)
+    else:
+        msg_box.setIcon(QMessageBox.Icon.Warning)
+        
+    msg_box.exec()
+
 def main():
     # Set explicit AppUserModelID on Windows so the taskbar groups and shows the custom icon
     if platform.system() == "Windows":
@@ -49,12 +79,12 @@ def main():
     # Enforce single instance
     shared_mem = QSharedMemory("vadaliya.serialportnotifier.singleinstance")
     if shared_mem.attach():
-        QMessageBox.warning(None, "Serial Port Notifier", "Serial Port Notifier is already running.")
+        _show_already_running_warning()
         sys.exit(0)
         
     if not shared_mem.create(1):
         if shared_mem.attach():
-            QMessageBox.warning(None, "Serial Port Notifier", "Serial Port Notifier is already running.")
+            _show_already_running_warning()
             sys.exit(0)
     
     app.setApplicationName("Serial Port Notifier")
