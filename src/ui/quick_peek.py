@@ -126,11 +126,12 @@ class QuickPeekDialog(QDialog):
         self.byte_buffer = bytearray()
         self.line_counter = 1
         self.is_paused = False
+        self.is_closed = False
         
         self.reader = SerialReaderThread(port_path, self)
         self.reader.data_received.connect(self._on_data_received)
         self.reader.status_changed.connect(self._on_status_changed)
-        self.reader.finished.connect(self.deleteLater)
+        self.reader.finished.connect(self._on_reader_finished)
         
         self._setup_ui()
         self._load_settings()
@@ -539,6 +540,10 @@ class QuickPeekDialog(QDialog):
         self.config.set("quick_peek_settings", qp_settings)
         self.config.save_config()
 
+    def _on_reader_finished(self):
+        if self.is_closed:
+            self.deleteLater()
+
     def closeEvent(self, event):
         # Save settings first
         try:
@@ -556,7 +561,10 @@ class QuickPeekDialog(QDialog):
             except Exception:
                 pass
                 
-        # Do not block here. We emit closed_signal so the parent removes this window from active peeks.
-        # Once the thread finishes running, deleteLater() will reclaim memory safely.
         self.closed_signal.emit()
+        self.is_closed = True
+        
+        if not self.reader.isRunning():
+            self.deleteLater()
+            
         event.accept()
