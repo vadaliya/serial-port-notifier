@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QApplication
 from utils.storage import ConfigManager
 from core.monitor import SerialMonitor
 from ui.tray import TrayApp
+from utils.autostart import set_autostart
 
 def exception_hook(exctype, value, tb):
     """Global handler for uncaught exceptions. Writes to a log file."""
@@ -52,6 +53,11 @@ def main():
 
     # 2. Initialize Core Engine
     config = ConfigManager()
+    
+    # Update autostart registration path if enabled to handle app relocation
+    prefs = config.get("preferences", {})
+    if prefs.get("autostart_enabled", False):
+        set_autostart(True)
     
     # Pass None for callbacks initially; TrayApp will hook into them
     monitor = SerialMonitor(config_manager=config)
