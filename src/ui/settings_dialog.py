@@ -5,6 +5,7 @@ from PyQt6.QtCore import Qt
 import serial.tools.list_ports
 
 from ui.edit_dialog import EditLauncherDialog
+from utils.autostart import set_autostart
 
 class AddHiddenPortDialog(QDialog):
     def __init__(self, already_hidden, parent=None):
@@ -297,7 +298,13 @@ class SettingsDialog(QDialog):
         """Save settings back to config manager and close."""
         # Save General Tab
         prefs = self.config.get("preferences", {})
-        prefs["autostart_enabled"] = self.chk_autostart.isChecked()
+        
+        old_autostart = prefs.get("autostart_enabled", False)
+        new_autostart = self.chk_autostart.isChecked()
+        if old_autostart != new_autostart:
+            set_autostart(new_autostart)
+            
+        prefs["autostart_enabled"] = new_autostart
         prefs["polling_interval_ms"] = self.combo_interval.currentData()
         prefs["enable_marquee"] = self.chk_marquee.isChecked()
         
