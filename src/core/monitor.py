@@ -9,30 +9,13 @@ class SerialMonitor:
         # Callbacks triggered when a change is detected
         self.on_port_added = on_port_added
         self.on_port_removed = on_port_removed
+        self.on_baseline_ready = None
         
         self.running = False
         self.thread = None
         self.current_ports = {}  # Mapped by device name (e.g., 'COM4' or '/dev/ttyUSB0')
         self.wake_event = threading.Event()
-        
-        # Establish initial baseline of ports so we don't trigger startup alerts
-        self._initialize_baseline_ports()
-
-    def _initialize_baseline_ports(self):
-        """Scans ports initially to populate baseline state without triggering callbacks."""
-        raw_ports = serial.tools.list_ports.comports()
-        hidden_ports = self.config.get("hidden_ports", [])
-        for p in raw_ports:
-            if p.device in hidden_ports:
-                continue
-            self.current_ports[p.device] = {
-                "device": p.device,
-                "description": p.description,
-                "manufacturer": p.manufacturer or "Unknown",
-                "vid": p.vid,
-                "pid": p.pid,
-                "is_busy": False
-            }
+        self._is_first_poll = True
 
     def start(self):
         """Start the background polling thread."""
@@ -97,6 +80,14 @@ class SerialMonitor:
                     port_data["is_busy"] = False
 
             new_port_state[p.device] = port_data
+
+        # If first poll, establish baseline state and alert UI to rebuild menu without notifications
+        if self._is_first_poll:
+            self.current_ports = new_port_state
+            self._is_first_poll = False
+            if self.on_baseline_ready:
+                self.on_baseline_ready()
+            return
 
         # Detect Added Ports (In new state, but not in old state)
         added_ports = [new_port_state[d] for d in new_port_state if d not in self.current_ports]

@@ -18,6 +18,7 @@ class TrayApp(QObject):
     ports_added_signal = pyqtSignal(list)
     ports_removed_signal = pyqtSignal(list)
     reset_completed_signal = pyqtSignal(str, list)
+    baseline_ready_signal = pyqtSignal()
 
     def __init__(self, config_manager, monitor):
         super().__init__()
@@ -38,8 +39,10 @@ class TrayApp(QObject):
         
         self.monitor.on_port_added = self.ports_added_signal.emit
         self.monitor.on_port_removed = self.ports_removed_signal.emit
+        self.monitor.on_baseline_ready = self.baseline_ready_signal.emit
         self.ports_added_signal.connect(self._on_ports_added)
         self.ports_removed_signal.connect(self._on_ports_removed)
+        self.baseline_ready_signal.connect(self._build_menu)
         self.reset_completed_signal.connect(self._show_notification)
 
         self.tray_icon = QSystemTrayIcon()
