@@ -4,7 +4,8 @@ import traceback
 import os
 from pathlib import Path
 from datetime import datetime
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtCore import QSharedMemory
 from utils.storage import ConfigManager
 from core.monitor import SerialMonitor
 from ui.tray import TrayApp
@@ -44,6 +45,17 @@ def main():
     # 1. Initialize the GUI Application
     # We must do this before creating any UI elements.
     app = QApplication(sys.argv)
+    
+    # Enforce single instance
+    shared_mem = QSharedMemory("vadaliya.serialportnotifier.singleinstance")
+    if shared_mem.attach():
+        QMessageBox.warning(None, "Serial Port Notifier", "Serial Port Notifier is already running.")
+        sys.exit(0)
+        
+    if not shared_mem.create(1):
+        if shared_mem.attach():
+            QMessageBox.warning(None, "Serial Port Notifier", "Serial Port Notifier is already running.")
+            sys.exit(0)
     
     app.setApplicationName("Serial Port Notifier")
     app.setApplicationDisplayName("Serial Port Notifier")
