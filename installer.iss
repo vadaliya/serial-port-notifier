@@ -11,6 +11,10 @@
 [Setup]
 AppName=Serial Port Notifier
 AppVersion={#AppVersion}
+AppPublisher=Google LLC
+AppPublisherURL=https://github.com/vadaliya/serial-port-notifier
+AppSupportURL=https://github.com/vadaliya/serial-port-notifier/issues
+AppUpdatesURL=https://github.com/vadaliya/serial-port-notifier/releases
 DefaultDirName={autopf}\SerialPortNotifier
 DefaultGroupName=Serial Port Notifier
 UninstallDisplayIcon={app}\SerialPortNotifier.exe
