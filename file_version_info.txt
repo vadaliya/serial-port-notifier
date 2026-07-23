@@ -2,8 +2,8 @@
 #
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 2, 2, 0),
-    prodvers=(1, 2, 2, 0),
+    filevers=(1, 3, 0, 0),
+    prodvers=(1, 3, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -19,12 +19,12 @@ VSVersionInfo(
         '040904b0',
         [StringStruct('CompanyName', 'Google LLC'),
         StringStruct('FileDescription', 'Serial Port Notifier'),
-        StringStruct('FileVersion', '1.2.2'),
+        StringStruct('FileVersion', '1.3.0'),
         StringStruct('InternalName', 'SerialPortNotifier'),
         StringStruct('LegalCopyright', 'Copyright (c) 2026 Google LLC'),
         StringStruct('OriginalFilename', 'SerialPortNotifier.exe'),
         StringStruct('ProductName', 'Serial Port Notifier'),
-        StringStruct('ProductVersion', '1.2.2')])
+        StringStruct('ProductVersion', '1.3.0')])
       ]
     )
   ]
