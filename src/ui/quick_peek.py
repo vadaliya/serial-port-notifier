@@ -420,6 +420,13 @@ class QuickPeekDialog(QDialog):
             self.btn_connect.setEnabled(False)
             self.btn_disconnect.setEnabled(True)
         else:
+            if self.reader.probing_mode:
+                self.lbl_status.setText("Probing...")
+                self.lbl_status.setStyleSheet("font-weight: bold; color: orange; font-size: 11pt;")
+                if not self.is_paused and msg:
+                    self._append_console_text(f"[SYSTEM: {msg}]\n")
+                return
+                
             # If reconnect is enabled, show Reconnecting status
             if self.chk_reconnect.isChecked() and self.reader._running:
                 self.lbl_status.setText("Reconnecting...")
