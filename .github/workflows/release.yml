@@ -62,24 +62,51 @@ jobs:
 
       - name: Build with PyInstaller (Windows)
         if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: |
-          pyinstaller --noconsole --onefile --icon=assets/logo.ico --add-data "assets;assets" --paths=src --name=SerialPortNotifier src/main.py
-          mv dist/SerialPortNotifier.exe dist/${{ matrix.asset_name }}
-          cp dist/${{ matrix.asset_name }} dist_release/
+          $version = "${{ github.ref_name }}"
+          $clean_ver = $version.TrimStart("v")
+          $ver_tuple = $clean_ver
+          if ($ver_tuple -notlike "*.*.*.*") {
+              $ver_tuple = "${clean_ver}.0"
+          }
+          # Replace template placeholders and create the actual file_version_info.txt
+          (Get-Content file_version_info.txt.template) `
+            -replace "{VERSION}", $clean_ver `
+            -replace "{VERSION_TUPLE}", ($ver_tuple -replace "\.", ", ") `
+            | Set-Content file_version_info.txt
+            
+          # Run PyInstaller using spec file
+          pyinstaller --clean SerialPortNotifier.spec
+          
+          # Rename output binary to include version
+          $versioned_asset = "${{ matrix.asset_name }}".Replace("SerialPortNotifier-", "SerialPortNotifier-$version-")
+          mv dist/SerialPortNotifier.exe dist_release/$versioned_asset
 
       - name: Build Installer (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
-          iscc /DAppVersion="$version" /DExecutablePath="dist_release/${{ matrix.asset_name }}" /DOutputName="SerialPortNotifier-temp-setup" installer.iss
-          mv dist/SerialPortNotifier-temp-setup.exe dist_release/${{ matrix.installer_name }}
+          $version = "${{ github.ref_name }}"
+          $clean_ver = $version.TrimStart("v")
+          $versioned_asset = "${{ matrix.asset_name }}".Replace("SerialPortNotifier-", "SerialPortNotifier-$version-")
+          $versioned_installer = "${{ matrix.installer_name }}".Replace("SerialPortNotifier-", "SerialPortNotifier-$version-")
+          
+          iscc /DAppVersion="$clean_ver" /DExecutablePath="dist_release/$versioned_asset" /DOutputName="SerialPortNotifier-temp-setup" installer.iss
+          mv dist/SerialPortNotifier-temp-setup.exe dist_release/$versioned_installer
 
       - name: Build with PyInstaller (Linux)
         if: startsWith(matrix.os, 'ubuntu')
         run: |
-          pyinstaller --noconsole --onefile --add-data "assets:assets" --paths=src --name=SerialPortNotifier src/main.py
-          mv dist/SerialPortNotifier dist_release/${{ matrix.asset_name }}
+          # Create a dummy file_version_info.txt if not present (although it is in repo)
+          touch file_version_info.txt
+          
+          # Run PyInstaller using spec file
+          pyinstaller --clean SerialPortNotifier.spec
+          
+          VERSION="${{ github.ref_name }}"
+          VERSIONED_ASSET=$(echo "${{ matrix.asset_name }}" | sed "s/SerialPortNotifier-/SerialPortNotifier-${VERSION}-/")
+          mv dist/SerialPortNotifier dist_release/${VERSIONED_ASSET}
 
       - name: Build Debian Package (Linux)
         if: startsWith(matrix.os, 'ubuntu')
@@ -112,13 +139,18 @@ jobs:
           echo "Terminal=false" >> deb_dir/usr/share/applications/serial-port-notifier.desktop
           echo "Categories=Utility;Development;" >> deb_dir/usr/share/applications/serial-port-notifier.desktop
           
-          cp dist_release/${{ matrix.asset_name }} deb_dir/usr/bin/serial-port-notifier
+          # Use the versioned binary we compiled in the previous step
+          VERSION_TAG="${{ github.ref_name }}"
+          VERSIONED_ASSET=$(echo "${{ matrix.asset_name }}" | sed "s/SerialPortNotifier-/SerialPortNotifier-${VERSION_TAG}-/")
+          
+          cp dist_release/${VERSIONED_ASSET} deb_dir/usr/bin/serial-port-notifier
           cp -r assets/* deb_dir/usr/share/serial-port-notifier/assets/
           
           chmod -R 755 deb_dir/usr/bin/serial-port-notifier
           chmod -R 755 deb_dir/DEBIAN
           
-          dpkg-deb --build deb_dir dist_release/${{ matrix.installer_name }}
+          VERSIONED_INSTALLER=$(echo "${{ matrix.installer_name }}" | sed "s/SerialPortNotifier-/SerialPortNotifier-${VERSION_TAG}-/")
+          dpkg-deb --build deb_dir dist_release/${VERSIONED_INSTALLER}
 
       - name: Release
         uses: softprops/action-gh-release@v2

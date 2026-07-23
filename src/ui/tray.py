@@ -6,13 +6,24 @@ import platform
 
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QAction
-from PyQt6.QtCore import QObject, pyqtSignal, Qt, QTimer
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal, Qt, QThread
 
-# Import our helper
 from utils.helpers import get_resource_path
-from ui.notification import ToastNotification
 from ui.settings_dialog import SettingsDialog
+from ui.notification import ToastNotification
 from ui.rename_dialog import RenamePortDialog
+
+class DeviceResetThread(QThread):
+    finished_signal = pyqtSignal(bool, str)
+    
+    def __init__(self, port_path, parent=None):
+        super().__init__(parent)
+        self.port_path = port_path
+        
+    def run(self):
+        from core.serial_reset import reset_serial_device
+        success, msg = reset_serial_device(self.port_path)
+        self.finished_signal.emit(success, msg)
 
 class TrayApp(QObject):
     ports_added_signal = pyqtSignal(list)
@@ -61,6 +72,7 @@ class TrayApp(QObject):
         
         self.menu = QMenu()
         self.menu.setStyleSheet("QMenu { min-width: 140px; }")
+        self.menu.aboutToShow.connect(self._build_menu)
         self.menu.aboutToHide.connect(self._on_menu_hidden)
         self._build_menu()
         self.tray_icon.setContextMenu(self.menu)
@@ -306,18 +318,24 @@ class TrayApp(QObject):
             self._build_menu()
 
     def _reset_device(self, device_path):
-        """Spawns a background thread to execute DTR/RTS hardware reset."""
-        import threading
-        from core.serial_reset import reset_serial_device
-        
-        def task():
-            success, msg = reset_serial_device(device_path)
-            if success:
-                self.reset_completed_signal.emit("Reset Successful", [{"device": device_path}])
-            else:
-                self.reset_completed_signal.emit("Reset Failed", [{"device": f"{device_path}: {msg}"}])
-                
-        threading.Thread(target=task, daemon=True).start()
+        """Spawns a background QThread to execute DTR/RTS hardware reset."""
+        if not hasattr(self, "_reset_threads"):
+            self._reset_threads = {}
+            
+        thread = DeviceResetThread(device_path, self)
+        thread.finished_signal.connect(
+            lambda success, msg, dp=device_path: self._on_reset_completed(dp, success, msg)
+        )
+        thread.finished.connect(lambda: self._reset_threads.pop(device_path, None))
+        thread.finished.connect(thread.deleteLater)
+        self._reset_threads[device_path] = thread
+        thread.start()
+
+    def _on_reset_completed(self, device_path, success, msg):
+        if success:
+            self.reset_completed_signal.emit("Reset Successful", [{"device": device_path}])
+        else:
+            self.reset_completed_signal.emit("Reset Failed", [{"device": f"{device_path}: {msg}"}])
 
     def _open_quick_peek(self, device_path):
         """Opens a modeless Quick Peek dialog for the specified port."""

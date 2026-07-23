@@ -12,6 +12,8 @@ from utils.helpers import get_resource_path
 class SerialReaderThread(QThread):
     data_received = pyqtSignal(bytes)
     status_changed = pyqtSignal(bool, str)
+    baud_detected = pyqtSignal(int)
+    probe_failed = pyqtSignal(str)
 
     def __init__(self, port_path, parent=None):
         super().__init__(parent)
@@ -29,6 +31,7 @@ class SerialReaderThread(QThread):
         self.reconnect_enabled = False
         self.reconnect_interval_ms = 1000
         
+        self.probing_mode = False
         self._running = False
         self.ser = None
 
@@ -52,54 +55,58 @@ class SerialReaderThread(QThread):
         self._running = True
         
         while self._running:
-            try:
-                self.ser = serial.Serial()
-                self.ser.port = self.port_path
-                self.ser.baudrate = self.baud_rate
-                self.ser.bytesize = self.bytesize
-                self.ser.parity = self.parity
-                self.ser.stopbits = self.stopbits
-                self.ser.xonxoff = self.xonxoff
-                self.ser.rtscts = self.rtscts
-                self.ser.timeout = 0.05
-                self.ser.open()
-                
-                # Apply initial pin states
-                self.ser.dtr = self.dtr_state
-                self.ser.rts = self.rts_state
-                
-                self.status_changed.emit(True, "Connected")
-                
-                # Reading loop
-                while self._running and self.ser.is_open:
-                    try:
-                        data = self.ser.read(1024)
-                        if data:
-                            self.data_received.emit(data)
-                    except Exception as e:
-                        raise e
-                        
-                    if self.poll_interval_ms > 0:
-                        self.msleep(self.poll_interval_ms)
-                        
-            except Exception as e:
-                self.status_changed.emit(False, str(e))
-                if self.ser:
-                    try:
-                        self.ser.close()
-                    except Exception:
-                        pass
-                    self.ser = None
-                
-                # Retry reconnect loop if allowed
-                if self._running and self.reconnect_enabled:
-                    slept = 0
-                    while self._running and slept < self.reconnect_interval_ms:
-                        self.msleep(50)
-                        slept += 50
-                else:
-                    break
+            if self.probing_mode:
+                self._run_probing()
+                break
+            else:
+                try:
+                    self.ser = serial.Serial()
+                    self.ser.port = self.port_path
+                    self.ser.baudrate = self.baud_rate
+                    self.ser.bytesize = self.bytesize
+                    self.ser.parity = self.parity
+                    self.ser.stopbits = self.stopbits
+                    self.ser.xonxoff = self.xonxoff
+                    self.ser.rtscts = self.rtscts
+                    self.ser.timeout = 0.05
+                    self.ser.open()
                     
+                    # Apply initial pin states
+                    self.ser.dtr = self.dtr_state
+                    self.ser.rts = self.rts_state
+                    
+                    self.status_changed.emit(True, "Connected")
+                    
+                    # Reading loop
+                    while self._running and self.ser.is_open:
+                        try:
+                            data = self.ser.read(1024)
+                            if data:
+                                self.data_received.emit(data)
+                        except Exception as e:
+                            raise e
+                            
+                        if self.poll_interval_ms > 0:
+                            self.msleep(self.poll_interval_ms)
+                            
+                except Exception as e:
+                    self.status_changed.emit(False, str(e))
+                    if self.ser:
+                        try:
+                            self.ser.close()
+                        except Exception:
+                            pass
+                        self.ser = None
+                    
+                    # Retry reconnect loop if allowed
+                    if self._running and self.reconnect_enabled:
+                        slept = 0
+                        while self._running and slept < self.reconnect_interval_ms:
+                            self.msleep(50)
+                            slept += 50
+                    else:
+                        break
+                        
         # Final cleanup
         if self.ser:
             try:
@@ -107,6 +114,105 @@ class SerialReaderThread(QThread):
             except Exception:
                 pass
             self.ser = None
+
+    def _run_probing(self):
+        """Iterates through standard baud rates to detect printable serial data."""
+        import time
+        bauds = [115200, 9600, 57600, 38400, 19200, 921600, 230400, 4800, 2400]
+        best_baud = None
+        best_score = 0.0
+        
+        self.status_changed.emit(False, "Initializing probe...")
+        
+        ser = None
+        try:
+            ser = serial.Serial()
+            ser.port = self.port_path
+            ser.baudrate = 115200
+            ser.bytesize = self.bytesize
+            ser.parity = self.parity
+            ser.stopbits = self.stopbits
+            ser.xonxoff = self.xonxoff
+            ser.rtscts = self.rtscts
+            ser.timeout = 0.05
+            ser.open()
+            
+            # Apply initial pin states (DTR reset happens here)
+            ser.dtr = self.dtr_state
+            ser.rts = self.rts_state
+            
+            # Wait 1.5s for microcontroller bootloader delay
+            # Sleep in increments of 100ms to stay responsive to thread interruption
+            slept = 0.0
+            while self._running and slept < 1.5:
+                self.msleep(100)
+                slept += 0.1
+                
+            for baud in bauds:
+                if not self._running:
+                    break
+                    
+                self.status_changed.emit(False, f"Probing ({baud} baud)...")
+                
+                try:
+                    # Dynamically change baud rate without closing/reopening the port
+                    ser.baudrate = baud
+                    # Discard any old garbage received during boot or transition
+                    ser.reset_input_buffer()
+                    
+                    buffer = bytearray()
+                    start_time = time.time()
+                    # Gather data for up to 300ms
+                    while self._running and (time.time() - start_time) < 0.3 and len(buffer) < 50:
+                        data = ser.read(10)
+                        if data:
+                            buffer.extend(data)
+                        else:
+                            self.msleep(10)
+                            
+                    if buffer:
+                        score = self._calculate_printability(buffer)
+                        # If score is very high (>= 92%) and we got at least 5 bytes, lock immediately
+                        if score >= 0.92 and len(buffer) >= 5:
+                            best_baud = baud
+                            best_score = score
+                            break
+                        if score > best_score:
+                            best_score = score
+                            best_baud = baud
+                except Exception:
+                    pass
+        except Exception as e:
+            self.probe_failed.emit(f"Failed to open port: {str(e)}")
+            return
+        finally:
+            if ser and ser.is_open:
+                try:
+                    ser.close()
+                except Exception:
+                    pass
+                    
+        if not self._running:
+            return
+            
+        if best_baud and best_score >= 0.70:
+            self.baud_detected.emit(best_baud)
+        else:
+            if best_baud is None:
+                self.probe_failed.emit("No data received on any baud rate. Ensure the device is powered and transmitting.")
+            else:
+                self.probe_failed.emit(f"Could not reliably detect baud rate (best match was {best_baud} with only {int(best_score * 100)}% readable text).")
+
+    def _calculate_printability(self, buffer):
+        """Returns the ratio of printable ASCII bytes to total bytes."""
+        if not buffer:
+            return 0.0
+        printable = 0
+        for b in buffer:
+            # Space (0x20) to tilde (0x7e), tab (0x09), line feed (0x0a), carriage return (0x0d)
+            if 32 <= b <= 126 or b in (9, 10, 13):
+                printable += 1
+        return printable / len(buffer)
 
 class QuickPeekDialog(QDialog):
     closed_signal = pyqtSignal()
@@ -132,6 +238,8 @@ class QuickPeekDialog(QDialog):
         self.reader.data_received.connect(self._on_data_received)
         self.reader.status_changed.connect(self._on_status_changed)
         self.reader.finished.connect(self._on_reader_finished)
+        self.reader.baud_detected.connect(self._on_baud_detected)
+        self.reader.probe_failed.connect(self._on_probe_failed)
         
         self._setup_ui()
         self._load_settings()
@@ -170,12 +278,24 @@ class QuickPeekDialog(QDialog):
         grp_config = QGroupBox("Serial Configuration")
         config_lay = QFormLayout(grp_config)
         
+        baud_container = QWidget()
+        baud_layout = QHBoxLayout(baud_container)
+        baud_layout.setContentsMargins(0, 0, 0, 0)
+        baud_layout.setSpacing(4)
+        
         self.combo_baud = QComboBox()
         for baud in [9600, 19200, 38400, 57600, 115200, 230400, 921600]:
             self.combo_baud.addItem(str(baud), baud)
         self.combo_baud.setCurrentIndex(4) # default 115200
         self.combo_baud.currentIndexChanged.connect(self._restart_connection)
-        config_lay.addRow("Baud Rate:", self.combo_baud)
+        
+        self.btn_autobaud = QPushButton("Auto Detect")
+        self.btn_autobaud.clicked.connect(self._start_autobaud_probing)
+        self.btn_autobaud.setStyleSheet("padding: 3px 8px; font-size: 10px;")
+        
+        baud_layout.addWidget(self.combo_baud)
+        baud_layout.addWidget(self.btn_autobaud)
+        config_lay.addRow("Baud Rate:", baud_container)
         
         self.combo_data = QComboBox()
         for bits in [5, 6, 7, 8]:
@@ -323,6 +443,13 @@ class QuickPeekDialog(QDialog):
             self.btn_connect.setEnabled(False)
             self.btn_disconnect.setEnabled(True)
         else:
+            if self.reader.probing_mode:
+                self.lbl_status.setText("Probing...")
+                self.lbl_status.setStyleSheet("font-weight: bold; color: orange; font-size: 11pt;")
+                if not self.is_paused and msg:
+                    self._append_console_text(f"[SYSTEM: {msg}]\n")
+                return
+                
             # If reconnect is enabled, show Reconnecting status
             if self.chk_reconnect.isChecked() and self.reader._running:
                 self.lbl_status.setText("Reconnecting...")
@@ -402,6 +529,44 @@ class QuickPeekDialog(QDialog):
             
         if self.chk_scroll.isChecked():
             self.txt_console.ensureCursorVisible()
+
+    def _start_autobaud_probing(self):
+        """Disables controls and triggers the background thread to run in probing mode."""
+        self._append_console_text("\n[SYSTEM: Starting Auto-Baud rate probing... Keep sending data from device.]\n")
+        
+        self.combo_baud.setEnabled(False)
+        self.btn_autobaud.setEnabled(False)
+        self.btn_connect.setEnabled(False)
+        self.btn_disconnect.setEnabled(False)
+        
+        self.reader.probing_mode = True
+        self._restart_connection()
+
+    def _on_baud_detected(self, baud):
+        """Callback when a valid baud rate is detected."""
+        self.combo_baud.setEnabled(True)
+        self.btn_autobaud.setEnabled(True)
+        
+        idx = self.combo_baud.findData(baud)
+        if idx >= 0:
+            self.combo_baud.blockSignals(True)
+            self.combo_baud.setCurrentIndex(idx)
+            self.combo_baud.blockSignals(False)
+            
+        self._append_console_text(f"[SYSTEM: Auto-detected baud rate: {baud} baud! Reconnecting...]\n")
+        
+        self.reader.probing_mode = False
+        self._restart_connection()
+
+    def _on_probe_failed(self, reason):
+        """Callback when probing fails to find a valid baud rate."""
+        self.combo_baud.setEnabled(True)
+        self.btn_autobaud.setEnabled(True)
+        
+        self._append_console_text(f"[SYSTEM ERROR: Auto-baud probing failed - {reason}]\n")
+        
+        self.reader.probing_mode = False
+        self._restart_connection()
 
     def _restart_connection(self):
         if self.reader.isRunning():
