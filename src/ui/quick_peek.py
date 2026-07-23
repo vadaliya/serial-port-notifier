@@ -122,53 +122,76 @@ class SerialReaderThread(QThread):
         best_baud = None
         best_score = 0.0
         
-        for baud in bauds:
-            if not self._running:
-                break
-                
-            self.status_changed.emit(False, f"Probing ({baud} baud)...")
+        self.status_changed.emit(False, "Initializing probe...")
+        
+        ser = None
+        try:
+            ser = serial.Serial()
+            ser.port = self.port_path
+            ser.baudrate = 115200
+            ser.bytesize = self.bytesize
+            ser.parity = self.parity
+            ser.stopbits = self.stopbits
+            ser.xonxoff = self.xonxoff
+            ser.rtscts = self.rtscts
+            ser.timeout = 0.05
+            ser.open()
             
-            try:
-                ser = serial.Serial()
-                ser.port = self.port_path
-                ser.baudrate = baud
-                ser.bytesize = self.bytesize
-                ser.parity = self.parity
-                ser.stopbits = self.stopbits
-                ser.xonxoff = self.xonxoff
-                ser.rtscts = self.rtscts
-                ser.timeout = 0.05
-                ser.open()
+            # Apply initial pin states (DTR reset happens here)
+            ser.dtr = self.dtr_state
+            ser.rts = self.rts_state
+            
+            # Wait 1.5s for microcontroller bootloader delay
+            # Sleep in increments of 100ms to stay responsive to thread interruption
+            slept = 0.0
+            while self._running and slept < 1.5:
+                self.msleep(100)
+                slept += 0.1
                 
-                # Apply initial pin states
-                ser.dtr = self.dtr_state
-                ser.rts = self.rts_state
+            for baud in bauds:
+                if not self._running:
+                    break
+                    
+                self.status_changed.emit(False, f"Probing ({baud} baud)...")
                 
-                buffer = bytearray()
-                start_time = time.time()
-                # Gather data for up to 500ms
-                while self._running and (time.time() - start_time) < 0.5 and len(buffer) < 50:
-                    data = ser.read(10)
-                    if data:
-                        buffer.extend(data)
-                    else:
-                        self.msleep(10)
-                        
-                ser.close()
-                
-                if buffer:
-                    score = self._calculate_printability(buffer)
-                    # If score is very high (>= 92%) and we got at least 5 bytes, lock immediately
-                    if score >= 0.92 and len(buffer) >= 5:
-                        best_baud = baud
-                        best_score = score
-                        break
-                    if score > best_score:
-                        best_score = score
-                        best_baud = baud
-            except Exception:
-                pass
-                
+                try:
+                    # Dynamically change baud rate without closing/reopening the port
+                    ser.baudrate = baud
+                    # Discard any old garbage received during boot or transition
+                    ser.reset_input_buffer()
+                    
+                    buffer = bytearray()
+                    start_time = time.time()
+                    # Gather data for up to 300ms
+                    while self._running and (time.time() - start_time) < 0.3 and len(buffer) < 50:
+                        data = ser.read(10)
+                        if data:
+                            buffer.extend(data)
+                        else:
+                            self.msleep(10)
+                            
+                    if buffer:
+                        score = self._calculate_printability(buffer)
+                        # If score is very high (>= 92%) and we got at least 5 bytes, lock immediately
+                        if score >= 0.92 and len(buffer) >= 5:
+                            best_baud = baud
+                            best_score = score
+                            break
+                        if score > best_score:
+                            best_score = score
+                            best_baud = baud
+                except Exception:
+                    pass
+        except Exception as e:
+            self.probe_failed.emit(f"Failed to open port: {str(e)}")
+            return
+        finally:
+            if ser and ser.is_open:
+                try:
+                    ser.close()
+                except Exception:
+                    pass
+                    
         if not self._running:
             return
             

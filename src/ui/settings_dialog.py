@@ -73,6 +73,10 @@ class SettingsDialog(QDialog):
         super().__init__()
         self.config = config_manager
         
+        import copy
+        self.launchers_copy = copy.deepcopy(self.config.get("launchers", []))
+        self.hidden_ports_copy = copy.deepcopy(self.config.get("hidden_ports", []))
+        
         self.setWindowTitle("Serial Port Notifier - Settings")
         self.setMinimumSize(500, 400)
         
@@ -192,7 +196,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(QLabel("Ports in this blacklist will be ignored by the monitor and won't appear in the menu."))
         
         self.hidden_ports_list = QListWidget()
-        for port in self.config.get("hidden_ports", []):
+        for port in self.hidden_ports_copy:
             self.hidden_ports_list.addItem(port)
             
         layout.addWidget(self.hidden_ports_list)
@@ -212,25 +216,24 @@ class SettingsDialog(QDialog):
         return tab
 
     def _add_hidden_port(self):
-        already_hidden = []
-        for i in range(self.hidden_ports_list.count()):
-            already_hidden.append(self.hidden_ports_list.item(i).text())
-            
-        dialog = AddHiddenPortDialog(already_hidden, self)
+        dialog = AddHiddenPortDialog(self.hidden_ports_copy, self)
         if dialog.exec():
             port = dialog.selected_port
-            if port and port not in already_hidden:
+            if port and port not in self.hidden_ports_copy:
+                self.hidden_ports_copy.append(port)
                 self.hidden_ports_list.addItem(port)
                 
     def _remove_hidden_port(self):
         item = self.hidden_ports_list.currentItem()
         if item:
-            self.hidden_ports_list.takeItem(self.hidden_ports_list.row(item))
+            row = self.hidden_ports_list.row(item)
+            self.hidden_ports_list.takeItem(row)
+            self.hidden_ports_copy.pop(row)
 
     def _populate_launchers(self):
-        """Fills the list widget with current launchers from config."""
+        """Fills the list widget with current launchers from copy."""
         self.launcher_list.clear()
-        for launcher in self.config.get("launchers", []):
+        for launcher in self.launchers_copy:
             label = launcher.get("label", "Unknown")
             program = launcher.get("program", "")
             args = launcher.get("args", "")
@@ -241,42 +244,34 @@ class SettingsDialog(QDialog):
     def _add_launcher(self):
         dialog = EditLauncherDialog()
         if dialog.exec():
-            launchers = self.config.get("launchers", [])
-            launchers.append(dialog.get_data())
-            self.config.save_config()
+            self.launchers_copy.append(dialog.get_data())
             self._populate_launchers()
 
     def _edit_launcher(self):
         row = self.launcher_list.currentRow()
         if row < 0: return
         
-        launchers = self.config.get("launchers", [])
-        dialog = EditLauncherDialog(launchers[row])
+        dialog = EditLauncherDialog(self.launchers_copy[row])
         if dialog.exec():
-            launchers[row] = dialog.get_data()
-            self.config.save_config()
+            self.launchers_copy[row] = dialog.get_data()
             self._populate_launchers()
 
     def _delete_launcher(self):
         row = self.launcher_list.currentRow()
         if row < 0: return
         
-        launchers = self.config.get("launchers", [])
-        launchers.pop(row)
-        self.config.save_config()
+        self.launchers_copy.pop(row)
         self._populate_launchers()
 
     def _duplicate_launcher(self):
         row = self.launcher_list.currentRow()
         if row < 0: return
         
-        launchers = self.config.get("launchers", [])
-        new_launcher = launchers[row].copy()
+        new_launcher = self.launchers_copy[row].copy()
         new_launcher["label"] += " (Copy)"
         new_launcher["id"] = f"launcher_{hash(new_launcher['label'])}"
         
-        launchers.insert(row + 1, new_launcher)
-        self.config.save_config()
+        self.launchers_copy.insert(row + 1, new_launcher)
         self._populate_launchers()
         self.launcher_list.setCurrentRow(row + 1)
 
@@ -285,12 +280,9 @@ class SettingsDialog(QDialog):
         if row < 0: return
         
         new_row = row + direction
-        launchers = self.config.get("launchers", [])
-        
-        if 0 <= new_row < len(launchers):
+        if 0 <= new_row < len(self.launchers_copy):
             # Swap items
-            launchers[row], launchers[new_row] = launchers[new_row], launchers[row]
-            self.config.save_config()
+            self.launchers_copy[row], self.launchers_copy[new_row] = self.launchers_copy[new_row], self.launchers_copy[row]
             self._populate_launchers()
             self.launcher_list.setCurrentRow(new_row)
 
@@ -311,11 +303,9 @@ class SettingsDialog(QDialog):
         notifs = self.config.get("notifications", {})
         notifs["enabled"] = self.chk_notifications.isChecked()
         
-        # Save Hidden Ports Blacklist
-        hidden_ports = []
-        for i in range(self.hidden_ports_list.count()):
-            hidden_ports.append(self.hidden_ports_list.item(i).text())
-        self.config.config["hidden_ports"] = hidden_ports
+        # Save Hidden Ports Blacklist and Launchers from copies back to config
+        self.config.set("hidden_ports", self.hidden_ports_copy)
+        self.config.set("launchers", self.launchers_copy)
         
         self.config.save_config()
         self.accept()
