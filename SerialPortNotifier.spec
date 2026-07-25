@@ -1,8 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import platform
+
+IS_WINDOWS = platform.system() == "Windows"
 
 a = Analysis(
-    ['src\\main.py'],
+    ['src/main.py'],
     pathex=['src'],
     binaries=[],
     datas=[('assets', 'assets')],
@@ -14,6 +17,7 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -35,6 +39,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['assets\\logo.ico'],
-    version='file_version_info.txt',
+    icon='assets/logo.ico',
+    version='file_version_info.txt' if IS_WINDOWS else None,
 )
