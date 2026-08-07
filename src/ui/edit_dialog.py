@@ -3,8 +3,8 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt6.QtCore import Qt
 
 class EditLauncherDialog(QDialog):
-    def __init__(self, launcher_data=None):
-        super().__init__()
+    def __init__(self, launcher_data=None, parent=None):
+        super().__init__(parent)
         self.setWindowTitle("Edit Launcher")
         self.setMinimumWidth(400)
         
