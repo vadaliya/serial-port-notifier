@@ -219,8 +219,8 @@ class TrayApp(QObject):
 
         port_menu.addSeparator()
         
-        # --- 3. Rename Feature ---
-        rename_action = QAction("Rename Port...", self)
+        # --- 3. Port Settings Feature ---
+        rename_action = QAction("Port Settings...", self)
         rename_action.triggered.connect(lambda checked, p=device_path, d=data: self._rename_port(p, d))
         port_menu.addAction(rename_action)
         port_menu.addSeparator()
@@ -296,25 +296,35 @@ class TrayApp(QObject):
             self._show_notification("Launcher Error", [{"device": str(e)}])
 
     def _rename_port(self, device_path, device_info):
-        """Opens the rename port dialog and updates the config if changed."""
+        """Opens the port settings dialog and updates the config if changed."""
         custom_labels = self.config.get("custom_labels", {})
         current_label = custom_labels.get(device_path, "")
         
         marquee_ports = self.config.get("marquee_ports", {})
         current_marquee = marquee_ports.get(device_path, False)
         
-        dialog = RenamePortDialog(device_path, current_label, current_marquee, device_info)
+        port_busy_settings = self.config.get("port_busy_settings", {})
+        current_busy = port_busy_settings.get(device_path, {"enabled": False, "interval_ms": 5000})
+        
+        dialog = RenamePortDialog(device_path, current_label, current_marquee, device_info, current_busy)
         if dialog.exec():
             new_label = dialog.get_label()
             if new_label:
                 custom_labels[device_path] = new_label
                 marquee_ports[device_path] = dialog.get_marquee_enabled()
             else:
-                # If label is empty, remove the customization
+                # If label is empty, remove label and marquee customization
                 custom_labels.pop(device_path, None)
                 marquee_ports.pop(device_path, None)
                 
+            busy_settings = dialog.get_busy_settings()
+            if busy_settings.get("enabled"):
+                port_busy_settings[device_path] = busy_settings
+            else:
+                port_busy_settings.pop(device_path, None)
+                
             self.config.save_config()
+            self.monitor.trigger_poll()
             self._build_menu()
 
     def _reset_device(self, device_path):
@@ -392,7 +402,7 @@ class TrayApp(QObject):
 
     def _open_settings(self):
         # Create and show the dialog
-        dialog = SettingsDialog(self.config)
+        dialog = SettingsDialog(self.config, self.monitor)
         
         # If the user clicks OK (accepts the dialog), rebuild the menu to reflect changes
         if dialog.exec():
