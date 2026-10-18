@@ -1,5 +1,7 @@
 import time
 import threading
+import platform
+import ctypes
 import serial
 import serial.tools.list_ports
 
@@ -14,6 +16,7 @@ class SerialMonitor:
         self.running = False
         self.thread = None
         self.current_ports = {}  # Mapped by device name (e.g., 'COM4' or '/dev/ttyUSB0')
+        self.last_busy_check_times = {} # Mapped by device name -> timestamp
         self.wake_event = threading.Event()
         self._is_first_poll = True
 
@@ -50,7 +53,10 @@ class SerialMonitor:
         raw_ports = serial.tools.list_ports.comports()
         hidden_ports = self.config.get("hidden_ports", [])
         features_config = self.config.get("preferences", {}).get("features", {})
+        global_status_indicator = features_config.get("show_status_indicator", False)
+        port_busy_settings = self.config.get("port_busy_settings", {})
         
+        now = time.time()
         new_port_state = {}
         
         for p in raw_ports:
@@ -68,13 +74,21 @@ class SerialMonitor:
                 "is_busy": False
             }
             
-            # Check availability if the user enabled the status indicator
-            # Skip Bluetooth ports to avoid massive connection timeouts (5+ seconds) on Windows
-            if features_config.get("show_status_indicator", True) and not self._is_bluetooth_port(p):
-                # Skip checking if busy on the very first poll it is detected
-                # This prevents blocking the thread during driver initialization (which takes 2-3s for some USB-to-Serial chips)
+            # Check availability if status indicator is enabled globally or for this specific port
+            port_cfg = port_busy_settings.get(p.device, {})
+            is_probing_enabled = global_status_indicator or port_cfg.get("enabled", False)
+            
+            if is_probing_enabled and not self._is_bluetooth_port(p):
                 if p.device in self.current_ports:
-                    port_data["is_busy"] = self._check_if_busy(p.device)
+                    interval_sec = port_cfg.get("interval_ms", 5000) / 1000.0
+                    last_check = self.last_busy_check_times.get(p.device, 0)
+                    
+                    if (now - last_check) >= interval_sec:
+                        port_data["is_busy"] = self._check_if_busy(p.device)
+                        self.last_busy_check_times[p.device] = now
+                    else:
+                        # Carry forward previous busy status until next interval
+                        port_data["is_busy"] = self.current_ports[p.device].get("is_busy", False)
                 else:
                     # Newly connected port: assume not busy on discovery
                     port_data["is_busy"] = False
@@ -109,14 +123,30 @@ class SerialMonitor:
         return "bluetooth" in desc or "bluetooth" in mfg
 
     def _check_if_busy(self, device):
-        """Attempts to briefly open the port to see if another app locked it."""
+        """Checks if port is locked by another app. Uses non-intrusive Win32 Query handle on Windows."""
+        if platform.system() == "Windows":
+            try:
+                device_path = "\\\\.\\" + device.strip() if not device.startswith("\\\\.\\") else device
+                # dwDesiredAccess = 0 (Query access only - no read/write stream opened, no DTR/RTS or CDC ACM line changes)
+                handle = ctypes.windll.kernel32.CreateFileW(device_path, 0, 0, None, 3, 0x80, None)
+                if handle == -1 or handle == 0xFFFFFFFF:
+                    err = ctypes.windll.kernel32.GetLastError()
+                    # Error 5 = ERROR_ACCESS_DENIED, 32 = ERROR_SHARING_VIOLATION
+                    if err in (5, 32):
+                        return True
+                    return True
+                else:
+                    ctypes.windll.kernel32.CloseHandle(handle)
+                    return False
+            except Exception:
+                pass
+                
+        # Fallback for Linux/macOS or if Win32 check raises an unexpected exception
         try:
-            # Non-blocking, instant open/close attempt
             s = serial.Serial(device, timeout=0)
             s.close()
             return False
         except serial.SerialException:
             return True
         except Exception:
-            # Catch-all for aggressive Linux permission locks
-            return True
+            return True

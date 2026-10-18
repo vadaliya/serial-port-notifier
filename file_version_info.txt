@@ -17,11 +17,11 @@ VSVersionInfo(
       [
       StringTable(
         '040904b0',
-        [StringStruct('CompanyName', 'Google LLC'),
+        [StringStruct('CompanyName', 'Bhargav Vadaliya'),
         StringStruct('FileDescription', 'Serial Port Notifier'),
         StringStruct('FileVersion', '1.5.0'),
         StringStruct('InternalName', 'SerialPortNotifier'),
-        StringStruct('LegalCopyright', 'Copyright (c) 2026 Google LLC'),
+        StringStruct('LegalCopyright', 'Copyright (c) 2026 Bhargav Vadaliya'),
         StringStruct('OriginalFilename', 'SerialPortNotifier.exe'),
         StringStruct('ProductName', 'Serial Port Notifier'),
         StringStruct('ProductVersion', '1.5.0')])

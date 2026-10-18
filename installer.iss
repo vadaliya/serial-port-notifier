@@ -11,7 +11,7 @@
 [Setup]
 AppName=Serial Port Notifier
 AppVersion={#AppVersion}
-AppPublisher=Google LLC
+AppPublisher=Bhargav Vadaliya
 AppPublisherURL=https://github.com/vadaliya/serial-port-notifier
 AppSupportURL=https://github.com/vadaliya/serial-port-notifier/issues
 AppUpdatesURL=https://github.com/vadaliya/serial-port-notifier/releases

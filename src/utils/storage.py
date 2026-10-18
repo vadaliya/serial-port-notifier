@@ -11,7 +11,7 @@ DEFAULT_CONFIG = {
         "check_updates_on_startup": True,
         "features": {
             "show_vid_pid": True,
-            "show_status_indicator": True,
+            "show_status_indicator": False,
             "enable_quick_copy": True
         }
     },
@@ -24,6 +24,7 @@ DEFAULT_CONFIG = {
     },
     "custom_labels": {},
     "marquee_ports": {},
+    "port_busy_settings": {},
     "hidden_ports": [],
     "launchers": [],
     "auto_connect_rules": []
