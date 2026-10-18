@@ -1,11 +1,13 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QTabWidget, QWidget, QCheckBox, QLabel, QListWidget,
-                             QComboBox, QLineEdit, QFormLayout)
+                             QComboBox, QLineEdit, QFormLayout, QMessageBox)
 from PyQt6.QtCore import Qt
 import serial.tools.list_ports
 
 from ui.edit_dialog import EditLauncherDialog
 from utils.autostart import set_autostart
+from core.updater import CheckUpdateThread
+from ui.update_dialog import UpdateDialog
 
 class AddHiddenPortDialog(QDialog):
     def __init__(self, already_hidden, parent=None):
@@ -123,6 +125,10 @@ class SettingsDialog(QDialog):
         self.chk_marquee.setChecked(prefs.get("enable_marquee", True))
         layout.addWidget(self.chk_marquee)
         
+        self.chk_updates = QCheckBox("Check for updates automatically on startup")
+        self.chk_updates.setChecked(prefs.get("check_updates_on_startup", True))
+        layout.addWidget(self.chk_updates)
+        
         # Polling Interval Setting
         form_layout = QFormLayout()
         self.combo_interval = QComboBox()
@@ -147,6 +153,14 @@ class SettingsDialog(QDialog):
         layout.addSpacing(10)
         layout.addLayout(form_layout)
         layout.addWidget(lbl_help)
+        
+        layout.addSpacing(15)
+        btn_update_layout = QHBoxLayout()
+        self.btn_check_update = QPushButton("Check for Updates Now...")
+        self.btn_check_update.clicked.connect(self._check_for_updates)
+        btn_update_layout.addWidget(self.btn_check_update)
+        btn_update_layout.addStretch()
+        layout.addLayout(btn_update_layout)
         
         layout.addStretch()
         return tab
@@ -286,6 +300,36 @@ class SettingsDialog(QDialog):
             self._populate_launchers()
             self.launcher_list.setCurrentRow(new_row)
 
+    def _check_for_updates(self):
+        self.btn_check_update.setEnabled(False)
+        self.btn_check_update.setText("Checking for updates...")
+        
+        self._update_thread = CheckUpdateThread(parent=self)
+        self._update_thread.finished_signal.connect(self._on_update_check_finished)
+        self._update_thread.start()
+
+    def _on_update_check_finished(self, success, update_info, error_msg):
+        self.btn_check_update.setEnabled(True)
+        self.btn_check_update.setText("Check for Updates Now...")
+        
+        if success and update_info:
+            if update_info.get("has_update"):
+                dialog = UpdateDialog(update_info, self)
+                dialog.exec()
+            else:
+                ver = update_info.get("current_version", "")
+                QMessageBox.information(
+                    self, 
+                    "Check for Updates", 
+                    f"You are up to date!\n\nSerial Port Notifier v{ver} is currently the newest version."
+                )
+        else:
+            QMessageBox.warning(
+                self, 
+                "Update Check Failed", 
+                f"Unable to check for updates:\n\n{error_msg}\n\nPlease check your internet connection or try again later."
+            )
+
     def _save_and_close(self):
         """Save settings back to config manager and close."""
         # Save General Tab
@@ -299,6 +343,7 @@ class SettingsDialog(QDialog):
         prefs["autostart_enabled"] = new_autostart
         prefs["polling_interval_ms"] = self.combo_interval.currentData()
         prefs["enable_marquee"] = self.chk_marquee.isChecked()
+        prefs["check_updates_on_startup"] = self.chk_updates.isChecked()
         
         notifs = self.config.get("notifications", {})
         notifs["enabled"] = self.chk_notifications.isChecked()

@@ -8,6 +8,7 @@ DEFAULT_CONFIG = {
         "autostart_enabled": False,
         "polling_interval_ms": 1000,
         "enable_marquee": True,
+        "check_updates_on_startup": True,
         "features": {
             "show_vid_pid": True,
             "show_status_indicator": True,

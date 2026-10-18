@@ -5,13 +5,16 @@ import shlex
 import platform
 
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
-from PyQt6.QtGui import QIcon, QAction
+from PyQt6.QtGui import QIcon, QAction, QCursor
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal, Qt, QThread
 
 from utils.helpers import get_resource_path
 from ui.settings_dialog import SettingsDialog
 from ui.notification import ToastNotification
 from ui.rename_dialog import RenamePortDialog
+from ui.about_dialog import AboutDialog
+from ui.update_dialog import UpdateDialog
+from core.updater import CheckUpdateThread
 
 class DeviceResetThread(QThread):
     finished_signal = pyqtSignal(bool, str)
@@ -68,6 +71,10 @@ class TrayApp(QObject):
         self.tray_icon.setIcon(QIcon(icon_path))
         # ------------------------------
         
+        self.available_update = None
+        self._check_update_thread = None
+        self._manual_check_thread = None
+
         self.tray_icon.setToolTip("Serial Port Notifier")
         
         self.menu = QMenu()
@@ -76,7 +83,14 @@ class TrayApp(QObject):
         self.menu.aboutToHide.connect(self._on_menu_hidden)
         self._build_menu()
         self.tray_icon.setContextMenu(self.menu)
+        self.tray_icon.activated.connect(self._on_tray_activated)
+        self.tray_icon.messageClicked.connect(self._on_tray_message_clicked)
         self.tray_icon.show()
+
+        # Check for updates on startup if enabled
+        prefs = self.config.get("preferences", {})
+        if prefs.get("check_updates_on_startup", True):
+            QTimer.singleShot(2500, self._auto_check_updates)
 
         # --- OS NATIVE HARDWARE DETECTION FOR WINDOWS ---
         if platform.system() == "Windows":
@@ -127,6 +141,17 @@ class TrayApp(QObject):
         self.menu.addSeparator()
 
         # 2. Application Controls Section
+        if self.available_update:
+            ver = self.available_update.get("latest_version", "")
+            update_action = QAction(f"Update Available (v{ver})...", self)
+            update_action.triggered.connect(self._open_update_dialog)
+            self.menu.addAction(update_action)
+            self.menu.addSeparator()
+
+        check_update_action = QAction("Check for Updates...", self)
+        check_update_action.triggered.connect(self._manual_check_updates)
+        self.menu.addAction(check_update_action)
+
         settings_action = QAction("Settings", self)
         settings_action.triggered.connect(self._open_settings)
         self.menu.addAction(settings_action)
@@ -400,7 +425,83 @@ class TrayApp(QObject):
             self._build_menu()
 
     def _open_about(self):
-        print("About window will open here")
+        dialog = AboutDialog(on_check_update_callback=self._manual_check_updates)
+        dialog.exec()
+
+    def _on_tray_activated(self, reason):
+        """Displays the context menu on left-click as well as right-click."""
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            if self.menu.isVisible():
+                self.menu.hide()
+            else:
+                self.menu.popup(QCursor.pos())
+                self.menu.activateWindow()
+                if platform.system() == "Windows":
+                    try:
+                        import ctypes
+                        ctypes.windll.user32.SetForegroundWindow(int(self.menu.winId()))
+                    except Exception:
+                        pass
+
+    def _on_tray_message_clicked(self):
+        """Opens the update dialog if the user clicks an update notification."""
+        if self.available_update:
+            self._open_update_dialog()
+
+    def _auto_check_updates(self):
+        """Silently queries GitHub for newer versions on startup."""
+        self._check_update_thread = CheckUpdateThread(parent=self)
+        self._check_update_thread.finished_signal.connect(self._on_auto_check_finished)
+        self._check_update_thread.start()
+
+    def _on_auto_check_finished(self, success, update_info, error_msg):
+        if success and update_info and update_info.get("has_update"):
+            self.available_update = update_info
+            self._build_menu()
+            
+            # Show a gentle notification about the update
+            ver = update_info.get("latest_version", "")
+            icon_path = get_resource_path("assets/logo.png")
+            self.tray_icon.showMessage(
+                "Update Available",
+                f"Serial Port Notifier v{ver} is available. Click here or check tray menu to update.",
+                QIcon(icon_path),
+                8000
+            )
+
+    def _manual_check_updates(self):
+        """Explicitly checks for updates with user feedback dialogs."""
+        self._manual_check_thread = CheckUpdateThread(parent=self)
+        self._manual_check_thread.finished_signal.connect(self._on_manual_check_finished)
+        self._manual_check_thread.start()
+
+    def _on_manual_check_finished(self, success, update_info, error_msg):
+        from PyQt6.QtWidgets import QMessageBox
+        if success and update_info:
+            if update_info.get("has_update"):
+                self.available_update = update_info
+                self._build_menu()
+                self._open_update_dialog()
+            else:
+                ver = update_info.get("current_version", "")
+                QMessageBox.information(
+                    None,
+                    "Check for Updates",
+                    f"You are up to date!\n\nSerial Port Notifier v{ver} is currently the newest version."
+                )
+        else:
+            QMessageBox.warning(
+                None,
+                "Update Check Failed",
+                f"Unable to check for updates:\n\n{error_msg}\n\nPlease check your internet connection or try again later."
+            )
+
+    def _open_update_dialog(self):
+        if not self.available_update:
+            self._manual_check_updates()
+            return
+        dialog = UpdateDialog(self.available_update)
+        dialog.exec()
 
     def _exit_app(self):
         self.monitor.stop()
